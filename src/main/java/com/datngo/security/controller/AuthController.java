@@ -1,13 +1,18 @@
 package com.datngo.security.controller;
 
 import com.datngo.security.dto.LoginDTO;
+import com.datngo.security.dto.RefreshTokenDTO;
 import com.datngo.security.dto.SignUpDTO;
+import com.datngo.security.entity.RefreshToken;
 import com.datngo.security.entity.Role;
 import com.datngo.security.entity.User;
+import com.datngo.security.exception.TokenRefreshException;
 import com.datngo.security.repository.RoleRepository;
 import com.datngo.security.repository.UserRepository;
 import com.datngo.security.security.JwtResponse;
 import com.datngo.security.security.JwtUtils;
+import com.datngo.security.security.TokenRefreshResponse;
+import com.datngo.security.security.service.RefreshTokenService;
 import com.datngo.security.security.service.UserDetailsImpl;
 import com.datngo.security.utils.ERole;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +46,9 @@ public class AuthController {
     RoleRepository roleRepository;
 
     @Autowired
+    RefreshTokenService refreshTokenService;
+
+    @Autowired
     PasswordEncoder encoder;
 
     @Autowired
@@ -59,11 +67,29 @@ public class AuthController {
                 .map(item -> item.getAuthority())
                 .collect(Collectors.toList());
 
+        RefreshToken refreshToken = refreshTokenService.createRefreshToken(userDetails.getId());
+
         return ResponseEntity.ok(new JwtResponse(jwt,
+                refreshToken.getToken(),
                 userDetails.getId(),
                 userDetails.getUsername(),
                 userDetails.getEmail(),
                 roles));
+    }
+
+    @PostMapping("/refreshtoken")
+    public ResponseEntity<?> refreshtoken(@Valid @RequestBody RefreshTokenDTO request) {
+        String requestRefreshToken = request.getRefreshToken();
+
+        return refreshTokenService.findByToken(requestRefreshToken)
+                .map(refreshTokenService::verifyExpiration)
+                .map(RefreshToken::getUser)
+                .map(user -> {
+                    String token = jwtUtils.generateTokenFromUsername(user.getUsername());
+                    return ResponseEntity.ok(new TokenRefreshResponse(token, requestRefreshToken));
+                })
+                .orElseThrow(() -> new TokenRefreshException(requestRefreshToken,
+                        "Refresh token is not in database!"));
     }
 
     @PostMapping("/signup")
